@@ -1,0 +1,245 @@
+---
+title: "Exercise 1 guidelines"
+author: "Miquel De Cáceres"
+date: '2022-06-13'
+output: html
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Exercise objectives
+
+1.  Build `forest` objects from a tree data frame of forest inventory data
+2.  Retrieve soil physical properties from SoilGrids
+3.  Interpolate daily weather on the plot location
+
+## Exercise data
+
+Package **medfate** includes a data frame (`poblet_trees`), corresponding to forest inventory data in a dense holm oak forest.
+
+-   *Location*: Poblet (Catalonia, Spain); long/lat: 1.0219º, 41.3443º
+-   *Topography*: elevation = 850 m, slope = 15.1º, aspect = 15º
+-   *Plot*: Circular plot of 15-m radius
+-   *Tree data*: Stem diameter measurements on two plots: *control* and *managed*.
+
+As a result of the abandonment of former coppicing in the area, there is a high density of stems per individual in the control plot.
+
+The management involved a reduction of the number of stems per individual (*sucker cutback* or *selecció de tanys*).
+
+## Guidelines by steps
+
+1.  Load packages **medfate**, **meteoland** and **medfateland**.
+
+```{r}
+#| label: load_packages
+library(pacman)
+p_load(medfate, meteoland, medfateland, sf, tidyverse)
+```
+
+2.  Load the data set `"poblet_trees"` included in package **medfate** and examine its content. How many and which forest structures are described?
+
+```{r}
+## Load data
+(poblet_trees_tbl <- as_tibble(poblet_trees))
+
+## Modify Quercus humilis to Quercus pubescens
+poblet_trees_tbl <- poblet_trees_tbl |> 
+    mutate(Species = if_else(
+        Species == "Quercus humilis",
+        "Quercus pubescens", 
+        Species
+    ))
+```
+
+The forest structures are: `r paste0(poblet_trees_tbl$Plot.Code |> unique(), collapse = ", )`.
+
+3.  Create an empty `forest` object (*hint*: see function `emptyforest()`) and populate its tree data from the appropriate subset of `"poblet_trees"` (*hint*: define a named string vector to specify a column mapping and use function `forest_mapTreeTable()` for the actual mapping).
+
+```{r}
+## Create empty forest
+data_forest <- emptyforest()
+
+## Add tree data to forest object
+data_forest$treeData <- poblet_trees_tbl |> 
+    filter(Plot.Code == "POBL_CTL") |> 
+    forest_mapTreeTable(
+        mapping_x   = c("Species" = "Species", "DBH" = "Diameter.cm"),
+        SpParams    = SpParamsMED,
+        plot_size_x = pi * 15**2
+    )
+```
+
+4.  What are the tree density and basal area of the stand? And the stand's leaf area index? Are these values acceptable for a dense oak forest? (*hint*: use function `summary()` for objects of class `forest`)
+
+```{r}
+summary(data_forest, SpParamsMED)
+```
+
+```{r}
+## Calculate basal area
+stand_basalArea(data_forest)
+## Calculate LAI
+stand_LAI(data_forest, SpParamsMED)
+```
+
+5.  Calculate the area of the plot used for sampling tree data and use it to repeat the tree mapping. Check the new values of tree density, stand basal area and leaf area index.
+
+I have done it in the previous exercise.
+
+6.  Try drawing a vertical profile of leaf area density (*hint*: use function `vprofile_leafAreaDensity()`)? Why is it failing? What tree measurements are needed to estimate light extinction through the canopy? Try to complete the information in `"poblet_trees"` using an allometric relationship (*hint*: you can draw allometries from 'AllometrApp' in *Laboratory Forestal Català*) and repeat the tree mapping. Check that the leaf area density profile can now be estimated.
+
+The function fails because we don't have height measurements.
+
+```{r}
+poblet_trees_tbl <- poblet_trees_tbl |> 
+    mutate(
+        Height = 1.806 * Diameter.cm**0.518 * 100
+    )
+```
+
+```{r}
+data_forest$treeData <- poblet_trees_tbl |> 
+    filter(Plot.Code == "POBL_CTL") |> 
+    forest_mapTreeTable(
+        mapping_x   = c("Species" = "Species", "Height" = "Height", "DBH" = "Diameter.cm"),
+        SpParams    = SpParamsMED,
+        plot_size_x = pi * 15**2
+    )
+```
+
+```{r}
+vprofile_leafAreaDensity(data_forest, SpParamsMED)
+```
+
+7.  Try to map the tree data of the *managed* forest stand *before* the intervention. Why is the summary function returning an error? Are there missing values in some variables of `treeData`? Why is this happening?
+
+```{r}
+## Create empty forest
+before_forest <- emptyforest()
+
+## Add tree data to forest object
+before_forest$treeData <- poblet_trees_tbl |> 
+    filter(Plot.Code == "POBL_THI_BEF") |> 
+    forest_mapTreeTable(
+        mapping_x   = c("Species" = "Species", "Height" = "Height", "DBH" = "Diameter.cm"),
+        SpParams    = SpParamsMED,
+        plot_size_x = pi * 15**2
+    )
+```
+
+```{r}
+summary(before_forest, SpParamsMED)
+```
+
+8.  Which species names in the `"poblet_trees"` dataset are not included in `SpParamsMED` and determine the reason. Correct the species names in `"poblet_trees"`, repeat the tree mapping and check the results.
+
+It's *Quercus humilis*, which now is named *Q. pubescens*. It was already fixed before.
+
+9.  Map the tree data of the *managed* forest stand *after* the intervention and compare its summary with that of the stand *before* the intervention.
+
+```{r}
+## Create empty forest
+after_forest <- emptyforest()
+
+## Add tree data to forest object
+after_forest$treeData <- poblet_trees_tbl |> 
+    filter(Plot.Code == "POBL_THI_AFT") |> 
+    forest_mapTreeTable(
+        mapping_x   = c("Species" = "Species", "Height" = "Height", "DBH" = "Diameter.cm"),
+        SpParams    = SpParamsMED,
+        plot_size_x = pi * 15**2
+    )
+```
+
+```{r}
+summary(after_forest, SpParamsMED)
+```
+
+There were `r 369.392 - 2673.8` trees/ha harvested, resulting in a total of `r 40.9224267 - 31.6162035` m^2^/ha extracted in terms of basal area.
+
+10. What is the number of tree cohorts in each of the forest structures? What is the density of each cohort? What can be the consequences of such a large number of cohorts for simulations?
+
+```{r}
+plant_species(data_forest, SpParamsMED)   |> length()
+plant_species(after_forest, SpParamsMED)  |> length()
+plant_species(before_forest, SpParamsMED) |> length()
+```
+
+Density of cohorts:
+
+- Cohort: by default, one cohort is one tree. However, in the next step we will fix this, because it's better to group by diametric class.
+
+```{r}
+par(mfrow = c(1, 3))
+hist(plant_species(data_forest, SpParamsMED), main = "No interv")
+hist(plant_species(after_forest, SpParamsMED), main = "After")
+hist(plant_species(before_forest, SpParamsMED), maine = "Before")
+par(mfrow = c(1, 1))
+```
+
+11. Merge tree cohorts by DBH class using function `forest_mergeTrees()` and check the resulting number of tree cohorts.
+
+```{r}
+data_merged_forest <- forest_mergeTrees(data_forest)
+after_merged_forest <- forest_mergeTrees(after_forest)
+before_merged_forest <- forest_mergeTrees(before_forest)
+```
+
+```{r}
+plant_ID(data_merged_forest, SpParamsMED)   |> length()
+plant_ID(after_merged_forest, SpParamsMED)  |> length()
+plant_ID(before_merged_forest, SpParamsMED) |> length()
+```
+
+12. Build a matrix with the geographic coordinates of Poblet stands and create an object of class `sfc` (package **sf**).
+
+```{r}
+cc <- c(1.0219, 41.3443)
+coords_sf <- sf::st_sf(geometry = sf::st_sfc(sf::st_point(cc), crs = 4326))
+```
+
+13. Retrieve a data frame of soil physical properties from SoilGrids using function `add_soilgrids()`, included in package **medfateland**.
+
+```{r}
+poblet_soil_sf <- add_soilgrids(coords_sf, widths = c(300, 700, 1000))
+```
+
+14. Initialize an object of class `soil` using the data frame of the previous step examine the result. Is the soil water capacity high or low?
+
+```{r}
+poblet_soil <- poblet_soil_sf$soil[[1]] |> soil()
+```
+
+15. Modify the column `rfc` of the data frame of soil physical properties to increase the percentage of rocks in layer #3 and check the water capacity again.
+
+We modify this for expert criteria. In SoilGrids it's definetely understimated.
+
+```{r}
+poblet_soil$rfc[3] <- 80
+```
+
+```{r}
+summary(poblet_soil)
+```
+
+16. Convert the `sfc` object that you created in step 12 into an object of class `sf` while adding the topographic variables (elevation, slope, aspect).
+
+```{r}
+## Get elevation
+elev <- elevatr::get_elev_point(coords_sf, src = "aws")
+
+## Add topograhy
+add_topography(
+    x   = coords_sf,
+    dem = elev$elevation
+)
+```
+
+17. Load the `"meteoland_interpolator_example"` object provided in package **meteoland** and interpolate daily weather on the location of the Poblet stands (hint: use function `interpolate_data()`).
+
+
+```{r}
+interpolate_data(meteoland_interpolator_example)
+```

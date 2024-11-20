@@ -1,0 +1,139 @@
+---
+title: "Curso medfate"
+---
+
+## Clase 1
+
+Vamos a empezar cargando los datos del ejemplo de la presentación 3. Tenemos datos de 217 árboles (o arbustos), y 157 variables medidas.
+
+```{r}
+#| label: load_packages
+library(pacman)
+
+p_load(medfate, tidyverse)
+```
+
+```{r}
+#| label: load_data
+params_tbl <- SpParamsMED |> 
+    as_tibble()
+```
+
+Cada parcela de bosque se representa en un objeto de clase *forest*, una lista con varios elementos.
+
+```{r}
+(forest <- exampleforest)
+```
+
+Cada especie representa una cohorte. Para los árboles tenemos:
+
+| Variable  | Definition                                          |
+|-----------|-----------------------------------------------------|
+| `Species` | Species name (should match `SpIndex` in `SpParams`) |
+| **`N`**   | Density of trees (in individuals per hectare)       |
+| **`DBH`** | Tree diameter at breast height (in cm)              |
+| `Height`  | Tree total height (in cm)                           |
+| `Z50`     | Soil depth corresponding to 50% of fine roots (mm)  |
+| `Z95`     | Soil depth corresponding to 95% of fine roots (mm)  |
+
+Para los arbustos:
+
+| Variable    | Definition                                          |
+|-------------|-----------------------------------------------------|
+| `Species`   | Species name (should match `SpIndex` in `SpParams`) |
+| **`Cover`** | Shrub cover (%)                                     |
+| `Height`    | Shrub total height (in cm)                          |
+| `Z50`       | Soil depth corresponding to 50% of fine roots (mm)  |
+| `Z95`       | Soil depth corresponding to 95% of fine roots (mm)  |
+
+Vamos a ver también como crear un objeto *forest* a partir de datos de inventario.
+
+### Atributos forestales
+
+-   plant\_*: Cohort-level information (species name, id, leaf area index, height…).*
+
+-   *species\_*: Species-level attributes (e.g. basal area, leaf area index).
+
+-   stand\_\*: Stand-level attributes (e.g. basal area).
+
+```{r}
+#| label: calc_attr_forestales
+## Basal area by species
+plant_basalArea(forest, SpParamsMED)
+## Basal area by stand
+stand_basalArea(forest)
+```
+
+### Aboveground data
+
+La siguiente función rara vez la utilizaremos pero se usa internamente para otros procesos importantes.
+
+```{r}
+above <- forest2aboveground(forest, SpParamsMED)
+above
+```
+
+### Leaf distribution
+
+Vamos a ver un par de funciones para ver la distribución vertical del área de hojas, ya sea por parcela, cohorte...
+
+```{r}
+vprofile_leafAreaDensity(forest, SpParamsMED)
+```
+
+
+```{r}
+vprofile_leafAreaDensity(
+    forest, 
+    SpParamsMED,
+    byCohorts = TRUE, 
+    bySpecies = TRUE
+)
+```
+
+### Belowground root distribution
+
+Podemos visualizar la distribución de las raíces finas en el suelo.
+
+```{r}
+vprofile_rootDistribution(forest, SpParamsMED)
+```
+
+
+```{r}
+defaultSoilParams(2)
+```
+
+
+### Inputs de suelo
+
+Iniciamos un `data.frame` con atributos de suelo utilizando la función `soil()`. Esto lo hace el paquete internamente.
+
+```{r}
+spar <- defaultSoilParams(2)
+(examplesoil <- soil(spar))
+```
+
+### Control simulación
+
+Tenemos la función `defaultControl()` para definir los parámetros por defecto del modelo.
+
+### Simulation input object
+
+Simulaciones de balance hídrico:
+
+```{r}
+sim_input <- spwbInput(forest, examplesoil, SpParamsMED, defaultControl())
+```
+
+### Meteorología
+
+Las simulaciones del paquete necesitan datos meteorológicos diarios con fechas y las variables (temperatura mínima, temperatura máxima, precipitación, humedad relativa, radiación, velocidad del viento). Las más importantes son temperatura y precipitación
+
+
+```{r}
+examplemeteo |> glimpse()
+```
+
+Paquete `meteoland` puede ser útil para esto.
+
