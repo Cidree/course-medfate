@@ -1,0 +1,285 @@
+---
+title: "Forest and dynamics"
+---
+
+## Teoría
+
+### Modelos de simulación y procesos
+
+Estos modelos se implementan con las funciones:
+
+* `growth()`: implementa procesos diarios:
+
+    -    Procesos de balance de carbono a través de la interacción de fuentes (fotosíntesis) y sumidero (respiración de mantenimiento, respiración de crecimiento, exudaciones radiculares, etc).
+
+    -    Crecimiento y senescencia que modulan cambios en el área de las hojas, área de albura y área de raíces finas en cohortes de plantas leñosas.
+
+    -    Cambios estructurales (d/h para árboles; fcc/h para arbustos) derivados del crecimiento y procesos de senescencia.
+
+    -    Mortalidad por sequía, que reduce la densidad de las cohortes de árboles o la cobertura de arbustos.
+
+    -    Efectos de la severidad del fuego, incluyendo hojas quemadas y mortalidad.
+
+* `fordyn()`: aplicaciones que llevan varios años:
+
+    -    Impacto de la gestión forestal.
+
+    -    Regeneración natural.
+
+
+### Pools de carbono y balances
+
+En balance de carbono se trabaja a nivel de individuo, no de cohorte.
+
+* **Carbon compartments and pools**: dependiendo de la parte de la planta, la incluimos en una clasificación de pools:
+
+    -    Compartimentos: hojas, albura, raíces finas
+
+    -    Structural (B): hojas secas, albura seca, raíces finas seca (biomasa)
+
+    -    Metabólico (SS): azúcares hojas, azúcares albura
+
+    -    Almacenamiento (ST): almidones hoja, almidones albura
+
+
+### Crecimiento y senescencia
+
+El modelo utiliza *drivers* de crecimiento y senescencia. Al aumentar el diámetro aumenta la cantidad de hojas.
+
+La senescencia de las hojas se determina a través de la edad, fenología y desecación.
+
+La senescencia de la albura se determina a través de la edad (dependencia de la temperatura), *sapwood area target*.
+
+Las senescencia de las raíces finas se determina a través de la edad (dependencia de la temperatura).
+
+Actualización de variables estrcuturales de árboles:
+
+$$
+\Delta{DBH} = 2 \cdot \sqrt{(DBH / 2)^{2} + (\Delta SA / \pi)} - DBH
+$$
+
+Los incrementos en altura son linearmente relacionados a incrementos del diámetro a través de un coeficiente que depende de las condiciones de luz, y limitado por una altura máxima.
+
+Para arbustos es algo más complejo. El área foliar se traduce a cambios en el volumen arbustivo, cobertura y altura a través de ecuaciones alométricas.
+
+### Mortalidad y reclutamiento
+
+* **Mortalidad**: depende de si son árboles pequeños o grandes.
+
+
+* **Reclutamiento**: esta se simula anualmente (es decir, a través de `fordyn()`). Este deepende de si se produce por semillas o rebrote (ocurre cuando hay cortas, incendios, o sequía).
+
+### Efectos del fuego
+
+Comportamiento de fuego de superficie (copas limitado).
+
+
+### Balance de biomasa
+
+Para carbono el profesor recomienda utilizar ecuaciones alométricas (por ejemplo, Ruiz-Peinado), ya que las opciones basadas en procesos no son robustas y necesitan ser mejoradas para una mayor robustez.
+
+
+
+```{r}
+library(pacman)
+
+p_load(medfate, tidyverse)
+```
+
+
+## Práctica
+
+### Forest growth inputs
+
+Utilizaremos los datos de `exampleforest` y `SpParamsMED`, además de crear datos de suelo y una lista de control:
+
+```{r}
+## Soil
+examplesoil <- defaultSoilParams(4)
+
+## Control list
+control <- defaultControl("Granier")
+
+## Create input growth object
+growth_input <- growthInput(
+    x        = exampleforest,
+    soil     = examplesoil,
+    SpParams = SpParamsMED,
+    control  = control
+)
+
+## Print list object names
+names(growth_input)
+```
+
+Dentro de este objeto tenemos elementos como:
+
+* above:
+
+* params*:
+
+### Forest growth simulations
+
+Las simulaciones nos darán los resultados siguientes:
+
+| Elements | Information |
+|---------------------|---------------------------------------------------|
+| `latitude`, `topography`, `weather`, `growthInput` | Copies of the information used in the call to `growth()` |
+| `growthOutput` | State variables at the end of the simulation (can be used as input to a subsequent one) |
+| `WaterBalance`, `Soil`, `Snow`, `Stand`, `Plants` | \[same as for function `spwb()` ...\] |
+| `CarbonBalance` | Stand-level carbon blance |
+| `LabileCarbonBalance` | Components of the individual-level labile carbon balance |
+| `PlantBiomassBalance` | Components of indvidual- and cohort-level biomass balance |
+| `PlantStructure` | Structural variables (DBH, height, sapwood area...) |
+| `GrowthMortality` | Growth and mortality rates |
+
+```{r}
+## Run simulations
+growth_sim <- growth(
+    x        = growth_input,
+    meteo     = examplemeteo,
+    latitude  = 41.82592,
+    elevation = 100
+)
+
+## Elements
+names(growth_sim)
+```
+
+Tenemos elementos explicados en la teoría. Podemos utilizar funciones para visualizar resultados como por ejemplo:
+
+```{r}
+plot(growth_sim, type = "MaintenanceRespiration", bySpecies = TRUE)
+```
+
+### Evaluation of growth predictions
+
+Las evaluaciones normalmente implican la comparación entre valores predichos y observados del incremento del área basimétrica o diámetro en una resolución temporal determinada.
+
+```{r}
+evaluation_plot(
+    out                = growth_sim, 
+    measuredData       = exampleobs, 
+    type               = "BAI",
+    cohort             = "T1_148",
+    temporalResolution = "month",
+    plotType           = "scatter"
+)
+```
+
+```{r}
+evaluation_plot(
+    out                = growth_sim, 
+    measuredData       = exampleobs, 
+    type               = "BAI",
+    cohort             = "T1_148",
+    temporalResolution = "month",
+    plotType           = "dynamics"
+)
+```
+
+```{r}
+evaluation_stats(growth_sim, exampleobs, "BAI", cohort = "T1_148", temporalResolution = "month")
+```
+
+### Forest dynamics simulations
+
+Para dinámicas forestales utilizamos la función `fordyn()`:
+
+```{r}
+## Fake three year data
+meteo <- rbind(examplemeteo, examplemeteo, examplemeteo, examplemeteo)
+
+## Update dates
+meteo$dates <- seq(as.Date("2001-01-01"), as.Date("2004-12-30"), by = "day")
+
+## Create simulations of fordyn
+fordyn_sim <- fordyn(
+    forest    = exampleforest, 
+    soil      = examplesoil, 
+    SpParams  = SpParamsMED, 
+    meteo     = meteo, 
+    control   = control,
+    latitude  = 41.82592, 
+    elevation = 100
+)
+```
+
+Este objeto tiene los siguientes resultados:
+
+| Elements | Information |
+|--------------------|----------------------------------------------------|
+| `StandSummary`, `SpeciesSummary`, `CohortSummary` | *Annual* summary statistics at different levels |
+| `TreeTable`, `ShrubTable` | Structural variables of **living** cohorts at each annual time step. |
+| `DeadTreeTable`, `DeadShrubTable` | Structural variables of **dead** cohorts at each annual time step |
+| `CutTreeTable`, `CutShrubTable` | Structural variables of **cut** cohorts at each annual time step |
+| `ForestStructures` | Vector of `forest` objects at each time step. |
+| `GrowthResults` | Result of internally calling `growth()` at each time step. |
+| `ManagementArgs` | Management arguments for a subsequent call to `fordyn()`. |
+| `NextInputObject`, `NextForestObject` | Objects `growthInput` and `forest` to be used in a subsequent call to `fordyn()`. |
+
+Resumen de la parcela:
+
+```{r}
+fordyn_sim$StandSummary |> glimpse()
+```
+
+Resumen de los árboles por año:
+
+```{r}
+fordyn_sim$TreeTable |> glimpse()
+```
+
+En el post-procesado podemos visualizar elementos para un año particular:
+
+```{r}
+plot(fordyn_sim$GrowthResults[[2]], "LeafArea", bySpecies = TRUE)
+```
+
+O para todos los años:
+
+```{r}
+plot(fordyn_sim, "LeafArea", bySpecies = TRUE)
+```
+
+### Forest dynamics including management
+
+Debemos añadir argumentos de gestión.
+
+```{r}
+## Default args
+args <- defaultManagementArguments()
+
+## Simulations
+fordyn_sim <- fordyn(
+    forest              = exampleforest, 
+    soil                = examplesoil, 
+    SpParams            = SpParamsMED, 
+    meteo               = meteo, 
+    control             = control,
+    latitude            = 41.82592, 
+    elevation           = 100,
+    management_function = defaultManagementFunction,
+    management_args     = args
+)
+```
+
+Los elementos que podemos modificar en `defaultManagementArguments()` son:
+
+| Element | Description |
+|----------------|--------------------------------------------------------|
+| `type` | Management model, either 'regular' or 'irregular' |
+| `targetTreeSpecies` | Either `"all"` for unspecific cuttings or a numeric vector of target tree species to be selected for cutting operations |
+| `thinning` | Kind of thinning to be applied in irregular models or in regular models before the final cuts. Options are `"below"`, `"above"`, `"systematic"`, `"below-systematic"`, `"above-systematic"` or a string with the proportion of cuts to be applied to different diameter sizes |
+| `thinningMetric` | The stand-level metric used to decide whether thinning is applied, either `"BA"` (basal area), `"N"` (density) or `"HB"` (Hart-Becking index) |
+| `thinningThreshold` | The threshold value of the stand-level metric causing the thinning decision |
+| `thinningPerc` | Percentage of stand's basal area to be removed in thinning operations |
+| `minThinningInterval` | Minimum number of years between thinning operations |
+| `finalMeanDBH` | Mean DBH threshold to start final cuts |
+| `finalPerc` | String with percentages of basal area to be removed in final cuts, separated by '-' (e.g. "40-60-100") |
+| `finalYearsBetweenCuts` | Number of years separating final cuts |
+| `yearsSinceThinning` | State variable to count the years since the last thinning ocurred |
+| `finalPreviousStage` | Integer state variable to store the stage of final cuts ('0' before starting final cuts) |
+| `finalYearsToCut` | State variable to count the years to be passed before new final cut is applied. |
+
+Finalmente, mencionar que también se puede utilizar `shinyplot(fordyn_sim)`.

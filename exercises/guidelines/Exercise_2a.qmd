@@ -2,15 +2,18 @@
 title: "Exercise 2a guidelines"
 author: "Miquel De Cáceres"
 date: '2022-06-14'
-output:
-  html_document: default
+output: html
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+```{r}
+library(pacman)
 
+p_load(medfate, patchwork, tidyverse)
+```
 
 ## Exercise objectives
 
@@ -44,97 +47,224 @@ knitr::opts_chunk$set(echo = TRUE)
 1. Load the file `"fontblanche.rds"`, which contains all the necessary data, and inspect the list elements until you understand them
 
 ```{r}
-
+fontblanche_lst <- read_rds("exercises/StudentRdata/fontblanche.rds")
 ```
 
 2. Build a `forest` object including the three tree cohorts given in the input data and examine its properties (e.g. basal area, tree density and leaf area index).
 
 ```{r}
+## Create empty forest
+fontblanche_forest <- emptyforest()
 
+## Populate forest
+fontblanche_forest$treeData <- fontblanche_lst$treeData
+
+## Properties
+summary(fontblanche_forest, SpParamsMED)
 ```
 
 3. Initialize an object `soil` using the physical soil description included in the input data.
 
 ```{r}
-
+fontblanche_soil <- soil(fontblanche_lst$soilData)
 ```
 
 4. Inspect the data frame `customParams` and modify the default species parameter table provided in medfate (*hint*: use function `modifySpParams()`).
 
 ```{r}
+fontblanche_lst$customParams
+```
 
+```{r}
+fontblanche_params <- modifySpParams(
+  SpParams     = SpParamsMED,
+  customParams = fontblanche_lst$customParams
+)
 ```
 
 5. Assemble a water balance input object and examine the dates of the weather dataset included in the input data
 
 ```{r}
+## Default parameters for basic WB
+control <- defaultControl(
+  transpirationMode = "Granier", 
+  soilDomains       = "buckets"
+)
 
+## Create WB input
+basic_waterbalance_input <- spwbInput(
+  x        = fontblanche_forest,
+  soil     = fontblanche_soil,
+  SpParams = fontblanche_params,
+  control  = control
+)
+```
+
+```{r}
+fontblanche_lst$meteoData$dates |> range()
 ```
 
 6. Run a basic water balance simulation and make sure you understand the console output
 
 ```{r}
-
+basic_waterbalance_sim <- spwb(
+  x         = basic_waterbalance_input,
+  meteo     = fontblanche_lst$meteoData,
+  latitude  = 43.24,
+  elevation = 420,
+  slope     = 0,
+  aspect    = 0
+)
 ```
+
+The soil water balance result in +15.3mm.
 
 7. Compare the precipitation events and the generation of surface runoff and/or deep drainage (*hint*: use functions `plot()`  or `shinyplot()` for objects `spwb`).
 
 ```{r}
-
+plot(basic_waterbalance_sim, type = "PET_Precipitation") /
+  plot(basic_waterbalance_sim, type = "Export")
 ```
 
 8. Examine the evapotranspiration flows (intercepted water, plant transpiration, bare soil evaporation), their seasonality and importance for the overall evapotranspiration (*hint*: use functions `plot()`  or `shinyplot()` for objects `spwb`).
 
 ```{r}
-
+plot(basic_waterbalance_sim, type = "Evapotranspiration") +
+  theme(legend.position = "none") +
+  plot(basic_waterbalance_sim, type = "Evapotranspiration", summary.freq = "week") +
+  theme(legend.position = "bottom") +
+  plot(basic_waterbalance_sim, type = "Evapotranspiration", summary.freq = "month") +
+  theme(legend.position = "none")
 ```
 
 9. Examine the dynamics of water potential in the different soil layers. Which ones are more dynamic? What could be wrong in the model parameterization if our expectations in this respect were not met? (*hint*: use functions `plot()`  or `shinyplot()` for objects `spwb`)
 
 ```{r}
-
+plot(basic_waterbalance_sim, type = "SoilPsi")
 ```
+
+The top layers are more dynamic.
 
 10. Examine the observed (measured) data set. Make sure you understand the column names. Try plotting a comparison of the observed vs. simulated stand evapotranspiration (*hint*: see documentation for function `evaluation_plot()`). 
 
-```{r}
+* SWC: second layer water content
 
+* ETR: evapotranspiration
+
+* E_T*: for each plant cohort whose transpiration is to be evaluated, a column starting with "E_" and continuing with a cohort name (e.g. "E_T1_68") with transpiration in L/m2/day on a leaf area basis (or L/m2/week, L/m2/month, etc, depending on the temporal resolution).
+
+* PD_*:
+
+* MD_*: 
+
+```{r}
+evaluation_plot(
+  out          = basic_waterbalance_sim,
+  measuredData = fontblanche_lst$measuredData,
+  type         = "ETR",
+  plotType     = "dynamics" 
+)
+```
+
+```{r}
+evaluation_plot(
+  out          = basic_waterbalance_sim,
+  measuredData = fontblanche_lst$measuredData,
+  type         = "ETR",
+  plotType     = "scatter" 
+)
 ```
 
 11. Generate the evaluation statistics for the evapotranspiration comparison (*hint*: use function `evaluation_stats()`)
 
 ```{r}
-
+evaluation_stats(
+  out          = basic_waterbalance_sim,
+  measuredData = fontblanche_lst$measuredData,
+  type         = "ETR"
+)
 ```
 
 12. Compare the observed vs. simulated soil water content. Why are the two series not scaled? Calculate evaluation statistics.
 
 ```{r}
+evaluation_plot(
+  out          = basic_waterbalance_sim,
+  measuredData = fontblanche_lst$measuredData,
+  type         = "SWC",
+  plotType     = "dynamics" 
+)
+```
 
+
+```{r}
+evaluation_stats(
+  out          = basic_waterbalance_sim,
+  measuredData = fontblanche_lst$measuredData,
+  type         = "SWC"
+)
 ```
 
 13. Create a new water balance input object for the advanced model (i.e. use `transpirationMode = "Sperry"`) and launch a new water balance simulation (this will take some time).
 
 ```{r}
+## New control params
+control <- defaultControl("Sperry")
+control$subdailyResults <- TRUE
 
+## New input
+adv_waterbalance_input <- spwbInput(
+  x        = fontblanche_forest,
+  soil     = fontblanche_soil,
+  SpParams = fontblanche_params,
+  control  = control
+)
+
+## New simulations
+adv_waterbalance_sim <- spwb(
+  x         = adv_waterbalance_input,
+  meteo     = fontblanche_lst$meteoData,
+  latitude  = 43.24,
+  elevation = 420,
+  slope     = 0,
+  aspect    = 0
+)
 ```
 
 14. Compare the performance of the first simulation to the second, in terms of their fit to observed soil moisture and stand evapotranspiration data.
 
 ```{r}
-
+bind_rows(
+  evaluation_stats(adv_waterbalance_sim, fontblanche_lst$measuredData, type = "SWC"),
+  evaluation_stats(basic_waterbalance_sim, fontblanche_lst$measuredData, type = "SWC")
+) |> 
+  mutate(
+    model = c("advanced", "basic"), .before = 1
+  )
 ```
 
 15. Compare the soil layer moisture dynamics of the two simulations. Which model produces stronger coupling between soil layers? Why?
 
 ```{r}
+plot(basic_waterbalance_sim, type = "SoilPsi") +
+  ggtitle("Basic model") +
+  theme(legend.position = "bottom") +
+  ylim(c(-4.2, 0)) +
+  plot(adv_waterbalance_sim, type = "SoilPsi") +
+  ggtitle("Advanced model") +
+  theme(legend.position = "none") +
+  ylim(c(-4.2, 0))
 
 ```
 
 16. Using the results of the advanced water balance model, draw the plant extraction from soil layers (`type = "PlantExtraction"`) and the water input from hydraulic redistribution (`type = "HydraulicRedistribution"`) to understand the upward and downward water flows.
 
 ```{r}
+plot(adv_waterbalance_sim, type = "PlantExtraction")
+```
 
+```{r}
+plot(adv_waterbalance_sim, type = "HydraulicRedistribution")
 ```
 
 17. Compare the plant transpiration dynamics of the two simulations at the leaf area level. Which species starts closing its stomata earlier? Are the two models consistent in this respect? Which functional parameters govern plant transpiration dynamics?

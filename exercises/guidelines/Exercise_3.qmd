@@ -1,0 +1,296 @@
+---
+title: "Exercise 3 guidelines"
+author: "Miquel De Cáceres"
+date: '2022-06-15'
+output: html
+---
+
+```{r}
+#| label: load_packages
+#| include: false
+library(pacman)
+
+p_load(medfate, patchwork, tidyverse)
+```
+
+## Exercise objectives
+
+  1. Learn to perform simulations of forest growth and forest dynamics with medfate
+  2. Evaluate tree growth predictions with tree ring data
+  3. Compare simulated vs observed forest changes between inventories 
+  4. Project forest dynamics with/without forest management
+
+## Exercise data
+
+We will use data corresponding to a forest plot of sampled during the third and fourth Spanish National Forest Inventory (SNFI3) in the province of Tarragona (latitude 41º N aprox.).
+
++ The forest plot is dominated by Aleppo pine (*Pinus halepensis*) with an understory of composed of several shrub species.
+
++ Tree ring data are available for some trees of the forest plot, because it was included in a research project focused on intraspecific variability of functional traits (FUN2FUN, granted to J. Martínez-Vilalta).
+
++ Soil has been already drawn from *SoilGrids*
+
++ Daily weather data corresponding to the plot location has been obtained with **meteoland**, corresponding to an historical period (SNFI3-SNFI4) and a  future period (2015-2100) under scenario RCP 8.5 (from Earth system model MPI-ESM regionalized to Europe using model RCA4).
+
+
+## Guidelines
+
+1. Load the file `"alepo.rds"`, which contains all the necessary data, and inspect each of the list elements until you understand their content and data structure
+
+```{r}
+pine_lst <- read_rds("exercises/StudentRdata/alepo.rds")
+```
+
+2. Estimate the leaf area index (LAI) and basal area of the forest stand at SNFI3 (year 2000), as well as the contribution of the different species present. Repeat the same calculations at SNFI4 (year 2014), comparing the results.
+
+```{r}
+#| label: calc_ba
+
+## Basal area, LAI, contribution of species
+print("-------------------------------")
+print("Data for IFN3")
+print("-------------------------------")
+summary(pine_lst$forest_snfi3, SpParamsMED)
+print("-------------------------------")
+
+## Basal area, LAI, contribution of species
+print("Data for IFN4")
+print("-------------------------------")
+summary(pine_lst$forest_snfi4, SpParamsMED)
+print("-------------------------------")
+```
+
+3. Build inputs for function `growth()` (what is the soil water holding capacity?) and perform a simulation for the historic period between SNFI3 and SNFI4. 
+
+```{r}
+pine_lst$historic_weather$dates |> range()
+```
+
+```{r}
+#| label: input_ifn3
+## Create forest inputs
+ifn3_input <- growthInput(
+  x        = pine_lst$forest_snfi3,
+  soil     = pine_lst$soildesc,
+  SpParams = SpParamsMED,
+  control  = defaultControl()
+)
+
+## Growth object
+ifn3_historic_growth <- growth(
+  x         = ifn3_input,
+  meteo     = pine_lst$historic_weather,
+  latitude  = pine_lst$latitude,
+  elevation = pine_lst$elevation,
+  slope     = pine_lst$slope,
+  aspect    = pine_lst$aspect
+)
+```
+
+4. Examine the simulation results using `shinyplot()`. Which species decreased in leaf area index? 
+
+*Salvia rosmarinus* y *Erica multiflora*.
+
+```{r}
+#| eval: false
+shinyplot(ifn3_historic_growth)
+```
+
+
+5. Evaluate visually the performance of the model with respect to the observed annual basal area increment of those trees for which ring measurements are available. Is the model performing appropriately? If not, what model parameter(s) could we change so that fit to data increases?
+
+* Black line: perfect fit
+
+* Gray line: actual linear fit
+
+```{r}
+bai_cohorts <- pine_lst$observed_growth |> names() %>% .[-1]
+bai_cohorts <- gsub("BAI_", "", bai_cohorts)
+```
+
+```{r}
+bai_scatter_gg <- map(
+  bai_cohorts,
+  \(x) evaluation_plot(
+    out                = ifn3_historic_growth,
+    measuredData       = pine_lst$observed_growth,
+    type               = "BAI",
+    cohort             = x,
+    temporalResolution = "month",
+    plotType           = "scatter"
+  )
+)
+```
+
+```{r}
+(bai_scatter_gg[[1]] + bai_scatter_gg[[2]]) /
+  (bai_scatter_gg[[3]] + bai_scatter_gg[[4]])
+```
+
+```{r}
+bai_scatter_gg[[1]]  + xlim(c(0, 15)) + ylim(c(0, 15))
+```
+
+```{r}
+bai_dynamics_gg <- map(
+  bai_cohorts,
+  \(x) evaluation_plot(
+    out                = ifn3_historic_growth,
+    measuredData       = pine_lst$observed_growth,
+    type               = "BAI",
+    cohort             = x,
+    temporalResolution = "year",
+    plotType           = "dynamics"
+  )
+)
+```
+
+```{r}
+(bai_dynamics_gg[[1]] + bai_dynamics_gg[[2]]) /
+  (bai_dynamics_gg[[3]] + bai_dynamics_gg[[4]])
+```
+
+6. Merge tree cohorts of the same DBH class to increase the speed of subsequent simulations. How many *P. halepensis* cohorts do we have after merging?
+
+```{r}
+ifn3_dclass_forest <- forest_mergeTrees(ifn3_forest)
+```
+
+```{r}
+print(
+  str_glue("We have {nrow(ifn3_dclass_forest$treeData)} cohorts")
+)
+```
+
+
+7. Use the merged forest as the input for simulation of forest dynamics using function `fordyn()` and historical weather data (*hint*: remember that `fordyn()` accepts vegetation, soil and control inputs directly). Make sure you understand the elements of the output object before continuing.
+ 
+```{r}
+ifn3_fordyn <- fordyn(
+  forest          = ifn3_dclass_forest,
+  soil            = pine_lst$soildesc,
+  SpParams        = SpParamsMED,
+  meteo           = pine_lst$historic_weather,
+  control         = defaultControl(),
+  latitude        = pine_lst$latitude,
+  elevation       = pine_lst$elevation,
+  slope           = pine_lst$slope,
+  aspect          = pine_lst$aspect,
+  management_args = defaultManagementArguments()
+)
+```
+ 
+8. Compare the stand-level metrics of the final `forest` state with the those derived from SNFI4. Is the final stand density and basal area predicted acceptably? What about shrub cover?
+ 
+```{r}
+## Basal area end of predictions
+ifn3_fordyn$StandSummary$TreeBasalAreaLive[15]
+## Real basal area
+stand_basalArea(pine_lst$forest_snfi4)
+```
+
+The basal area is overpredicted by `r 29.21 - 27.57` m^2^/ha.
+
+```{r}
+## Stand density end of predictions
+ifn3_fordyn$StandSummary$TreeDensityLive[15]
+## Real basal area
+stand_treeDensity(pine_lst$forest_snfi4)
+```
+
+The tree density is overpredicted by `r ifn3_fordyn$StandSummary$TreeDensityLive[15] - stand_treeDensity(pine_lst$forest_snfi4)` trees/ha.
+
+```{r}
+## Shrub cover alive end of predictions
+ifn3_fordyn$ShrubTable |> filter(Year == 2014)
+## Real shrub cover in 2014
+pine_lst$forest_snfi4$shrubData
+```
+
+
+```{r}
+summary(ifn3_fordyn$NextForestObject, SpParamsMED)
+```
+
+```{r}
+summary(pine_lst$forest_snfi4, SpParamsMED)
+```
+ 
+9. Predict future forest dynamics using weather projection data. Use the previous run of `fordyn()` as starting point for simulations. What is the predicted basal area at the end of the century?
+
+```{r}
+predictions_2100_fordyn <- fordyn(
+  forest          = ifn3_fordyn,
+  soil            = pine_lst$soildesc,
+  SpParams        = SpParamsMED,
+  meteo           = pine_lst$projected_weather,
+  control         = defaultControl(),
+  latitude        = pine_lst$latitude,
+  elevation       = pine_lst$elevation,
+  slope           = pine_lst$slope,
+  aspect          = pine_lst$aspect
+)
+```
+
+```{r}
+print(
+  str_glue("The predicted basal area at the end of the century is {predictions_2100_fordyn$StandSummary$TreeBasalAreaLive[87] |> round(2)} m2/ha")
+)
+```
+
+```{r}
+summary(predictions_2100_fordyn$NextForestObject, SpParamsMED)
+```
+
+10. Read the function documentation of `defaultManagementFunction()`. Then, create a list of management arguments using `defaultManagementArguments()` and increase the minimum basal area for thinning intervention from 20 to 30 m2/ha.
+
+```{r}
+management_args <- defaultManagementArguments()
+management_args$thinningThreshold <- 30
+```
+
+11. Repeat the projection of forest dynamics including forest management, by telling `fordyn()` to use function `defaultManagementFunction()` and providing the modified management arguments.
+
+```{r}
+thinning_2100_fordyn <- fordyn(
+  forest          = ifn3_fordyn,
+  soil            = pine_lst$soildesc,
+  SpParams        = SpParamsMED,
+  meteo           = pine_lst$projected_weather,
+  control         = defaultControl(),
+  latitude        = pine_lst$latitude,
+  elevation       = pine_lst$elevation,
+  slope           = pine_lst$slope,
+  aspect          = pine_lst$aspect,
+  management_args = management_args
+)
+```
+
+12. Compare the projections without/with forest management, by plotting the predicted temporal variation in stand basal area. Compare the final tree structures at the end of the simulation. Why does simulation with management have a lower number of tree cohorts? Which simulation produces larger natural mortality?
+
+```{r}
+plot(predictions_2100_fordyn, type = "StandBasalArea") +
+  ggtitle("Without management") +
+  plot(thinning_2100_fordyn, type = "StandBasalArea") +
+  ggtitle("With management") +
+  plot_annotation(title = "Stand basal area")
+```
+
+```{r}
+plot(predictions_2100_fordyn, type = "CohortBasalArea") +
+  ggtitle("Without management") +
+  theme(legend.position = "none") +
+  plot(thinning_2100_fordyn, type = "CohortBasalArea") +
+  ggtitle("With management") +
+  plot_annotation(title = "Cohort basal area")
+```
+
+```{r}
+plot(predictions_2100_fordyn, type = "SpeciesBasalArea") +
+  ggtitle("Without management") +
+  theme(legend.position = "none") +
+  plot(thinning_2100_fordyn, type = "SpeciesBasalArea") +
+  ggtitle("With management") +
+  plot_annotation(title = "Species basal area")
+```
+

@@ -81,7 +81,6 @@ Vamos a ver un par de funciones para ver la distribución vertical del área de 
 vprofile_leafAreaDensity(forest, SpParamsMED)
 ```
 
-
 ```{r}
 vprofile_leafAreaDensity(
     forest, 
@@ -99,11 +98,9 @@ Podemos visualizar la distribución de las raíces finas en el suelo.
 vprofile_rootDistribution(forest, SpParamsMED)
 ```
 
-
 ```{r}
 defaultSoilParams(2)
 ```
-
 
 ### Inputs de suelo
 
@@ -130,10 +127,275 @@ sim_input <- spwbInput(forest, examplesoil, SpParamsMED, defaultControl())
 
 Las simulaciones del paquete necesitan datos meteorológicos diarios con fechas y las variables (temperatura mínima, temperatura máxima, precipitación, humedad relativa, radiación, velocidad del viento). Las más importantes son temperatura y precipitación
 
-
 ```{r}
 examplemeteo |> glimpse()
 ```
 
 Paquete `meteoland` puede ser útil para esto.
 
+## Clase 2
+
+En esta clase vamos a trabajar con modelos hidrológicos.
+
+### Conceptos preliminares
+
+**Curvas de retención**: relación entre el contenido de humedad del suelo (m^3^/m^3^) y el potencial matricial del agua. En `medfate` tenemos los modelos de Saxton y Van Genuchten.
+
+**Curvas de volumen de presión de las plantas**: la curva de presión volumétrica de un órgano o tejido de una planta es la relación enter el contenido relativo del agua y el correspondiente potencial del agua. Se suelen determinar para las hojas.
+
+**Conductancia hidráulica (k)**: cantidad de flujo (moviento de agua en el tiempo) a través de un camino (suelo, tronco, hojas...) para una determinada diferencia en el potencial del agua.
+
+-   Rizosfera: se modela con la función de Van Genuchten (1980).
+
+-   Xilema: se modela utilizando una sigmoide o Weibull.
+
+**Caída del potencial del agua en las plantas**: con estomas cerrados el potencial mátrico del agua de las hojas es´ta en equilibrio con el potencial mátrico de la rizosfera. Con estomas abiertos, un mayor flujo de transpiración (E) implica una mayor caída en el potencial del agua debido a la presión negativa que aparece.
+
+### Balance de agua en medfate
+
+* **Componentes**: infiltración, capilaridad, drenaje, exceso de saturación, evaporación del suelo, transpiración arbóreas, transpiración herbáceas.
+
+* **Soil water inputs**: ratio precipitación/evaporación, canopy LAI, capacidad de agua de la primera capa del suelo, proporción de macroporos.
+
+* **Soil water outputs**: ETP, extinción de la radiación, humedad de la capa superior del suelo, conductividad hidráulica.
+
+* **Soil water fluxes**: hay tres modelos disponibles para simular el movimiento del agua dentro, fuera y entre el suelo.
+
+
+### Transpiración y fotosíntesis (modelo básico)
+
+* **Maximum canopy transpiration**: ecuación empírica que relaciona el LAI con *maximum canopy transpiration* (ecuación de Granier). Ecuación muy robusta.
+
+
+* **Actual plant transpiration**: depende de la humedad del suelo y se calcula para cada capa del suelo (s) de forma independiente. Hace *meta-modeling* para estimar parámetros de la ecuación original, ya que son complejos de adquirir.
+
+* **Fotosíntesis**: se estima como función de la transpiración. También utiliza *meta-modeling*.
+
+* **Potencial del agua de la planta**
+
+
+### Transpiración y fotosíntesis (modelo avanzado)
+
+Trabajamos a nivel sub-diario. Procesos:
+
+* Soil & canopy energy balance
+
+* Canopy turbulence
+
+* Sunlit/shade leaf photosynthesis
+
+* Direct/diffuse short-wave extinction model
+
+* Long-wave radiation model
+
+* Plant hydraulics & stomatal regulation: modelos de Sperry y Sureau.
+
+
+### Estrés por sequía y cavitación
+
+Existen modelos básicos y avanzados para estos modelos.
+
+* **Daily drought stress**
+
+* **Cavitación**
+
+### Práctica
+
+#### Inputs
+
+Trabajaremos con `SpParamsMED` y `exampleforest`.
+
+```{r}
+SpParamsMED |> glimpse()
+exampleforest
+```
+
+También generamos datos de suelo de ejemplo:
+
+```{r}
+(examplesoil <- defaultSoilParams(4))
+```
+
+Y una lista de simulación de control, en la que indicamos parámetros de control de los modelos (sub-modelos):
+
+::: callout-important
++ Plant transpiration (`transpirationMode`) should be `"Granier"` (basic), `"Sperry"` (advanced with Sperry) or `"Sureau"` (advanced with Sureau-ECOS).
+
++ Soil water movement (`soilDomains`) should be `"buckets"` (multi-bucket), `"single"` (single-domain) or `"dual"` (dual-permeability).
+:::
+
+
+```{r}
+control <- defaultControl(transpirationMode = "Granier", soilDomains = "buckets")
+```
+
+Con estos elementos podemos crear el objeto *input*:
+
+
+```{r}
+water_input <- spwbInput(exampleforest, examplesoil, SpParamsMED, control)
+```
+
+Esto crea una lista con varios elementos:
+
+```{r}
+names(water_input)
+```
+
+Podemos explorar cualquier elemento de la lista. Por ejemplo, tenemos los parámetros de suelo inicializados.
+
+```{r}
+water_input$soil
+```
+
+* above: parámetros descriptivos de la vegetación aérea.
+
+* below: parámetros descriptivos de la vegetación de suelo.
+
+* params*: parámetros de cohorte.
+
+#### Balance de agua básico
+
+Necesitamos datos climáticos como los siguientes:
+
+```{r}
+head(examplemeteo)
+```
+
+Con ello, podemos utilizar la función `spwb()` para calcular el balance del agua básico:
+
+```{r}
+water_balance_lst <- spwb(
+    x         = water_input, 
+    meteo     = examplemeteo, 
+    latitude  = 41.82592, 
+    elevation = 100
+)
+```
+
+Esto es una lista con la clase S3 de `spwb`.
+
+```{r}
+names(water_balance_lst)
+```
+
+Tenemos información diaria de WaterBalance, Soil, Snow, Stand, Plants.
+
+En algunas tablas el nombre de fila es la fecha.
+
+```{r}
+water_balance_lst$WaterBalance |> glimpse()
+```
+
+Resumiendo los resultados del modelo:
+
+```{r}
+summary(
+    water_balance_lst,
+    freq   = "months",
+    FUN    = mean,
+    output = "WaterBalance"
+)
+```
+
+También podemos seguir con el postprocesado utilizando la siguiente función. Recomendado utilizar esta función.
+
+```{r}
+medfate::extract(water_balance_lst, level = "forest") |> 
+    glimpse()
+```
+
+Podemos visualizar objetos `spwb` con `plot()`:
+
+```{r}
+plot(water_balance_lst, type = "PET_Precipitation")
+```
+
+También podemos utilizar la función `shinyplot(water_balance_lst)` para explorar todos los resultados en una Shiny App.
+
+#### Model performance
+
+El paquete tiene funciones para comparar predicciones con observaciones. Las funciones tienen la estructura `evaluation_*()`.
+
+```{r}
+evaluation_metric(
+    out          = water_balance_lst,
+    measuredData = exampleobs,
+    type         = "SWC",
+    metric       = "MAE"
+)
+```
+
+
+```{r}
+evaluation_plot(
+    out          = water_balance_lst,
+    measuredData = exampleobs,
+    type         = "SWC",
+    plotType     = "dynamics")
+)
+```
+
+#### Balance de agua avanzado
+
+Debemos cambiar los parámetros de control:
+
+```{r}
+control <- defaultControl("Sperry")
+control$subdailyResults <- TRUE
+```
+
+Creamos de nuevo los inputs, pero con el nuevo control:
+
+```{r}
+water_advanced_input <- spwbInput(exampleforest, examplesoil, SpParamsMED, control)
+```
+
+En siguiente lugar, podemos realizar el balance para un solo día:
+
+
+```{r}
+## Vector de datos de clima
+d = 100
+meteovec <- unlist(examplemeteo[d,-1])
+
+# sd1 <- spwb_day(
+#     water_advanced_input, 
+#     date, 
+#     meteovec,
+#     latitude  = 41.82592, 
+#     elevation = 100,
+#     slope     = 0, 
+#     aspect    = 0
+# )
+```
+
+Para varios días:
+
+```{r}
+water_balance_adv_lst <- spwb(
+    water_advanced_input, 
+    examplemeteo,
+    latitude  = 41.82592, 
+    elevation = 100
+)
+```
+
+Este tarda algo más. Podemos obtener resultados:
+
+
+```{r}
+plot(water_balance_adv_lst, type = "LeafPsiRange", bySpecies = TRUE)
+```
+
+#### Modificar inputs
+
+Es posible que tengamos datos de campo de algunas propiedades (por ejemplo, LAI) que son más precisas que las calculadas por `medfate` mediante alometría.
+
+Si queremos modificarlo podemos hacerlo en el objeto *input*.
+
+
+```{r}
+#| eval: false
+water_advanced_input$above$LAI_expanded <- c(.8, .5, .3)
+```

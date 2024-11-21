@@ -1,0 +1,112 @@
+---
+title: "medfateland & traits4models"
+---
+
+```{r}
+library(pacman)
+
+p_load(medfateland, tidyverse)
+```
+
+# Large scale simulations
+
+
+## Data structures
+
+Se utilizan estructuras de datos `sf`.
+
+## Spatially-uncoupled simulations
+
+Las funciones tienen la misma denominación, peor terminan en `*_spatial()`. El input en este caso es un objeto `sf`.
+
+Podemos ver que incluye los objetos `input` y simulaciones.
+
+```{r}
+## Control params
+local_control <- defaultControl()
+
+## Dates
+dates <- seq(as.Date("2001-01-01"), as.Date("2001-01-31"), by = "day")
+example_subset <- example_ifn[1:5, ]
+
+## Water balance function
+water_balance_sf <- spwb_spatial(
+    sf            = example_subset, 
+    SpParams      = SpParamsMED, 
+    meteo         = examplemeteo,
+    dates         = dates, 
+    local_control = local_control
+)
+
+## Print
+print(water_balance_sf)
+```
+
+Uso de funciones `summary`:
+
+```{r}
+water_balance2_sf <- spwb_spatial(
+    sf                = example_subset, 
+    SpParams          = SpParamsMED, 
+    meteo             = examplemeteo,
+    dates             = dates, 
+    local_control     = local_control,
+    keep_results      = FALSE,
+    summary_function  = summary, 
+    summary_arguments = list(freq = "months")
+)
+
+print(water_balance2_sf)
+```
+
+```{r}
+simulation_summary(water_balance_sf, summary_function = summary, freq = "months")
+```
+
+Continuar una simulación previa
+
+```{r}
+example_mod <- update_landscape(example_subset, water_balance_sf)
+
+dates <- seq(as.Date("2001-02-01"), as.Date("2001-02-28"), by="day")
+
+res_3 <- spwb_spatial(
+    example_mod, 
+    SpParamsMED, 
+    examplemeteo,
+    dates = dates, 
+    local_control = local_control
+)
+```
+
+## Regional management scenarios
+
+Funcíones:
+
+* `fordyn_spatial()`: simulaciones de dinámicas forestales para parcelas forestales, siendo posible incluir gestión forestal y preescripciones específicas de parcela.
+
+* `fordyn_scenario()`: evalúa las dinámicas en función de la demanda.
+
+```{r}
+example_subset$dominant_tree_species <- sapply(
+    example_subset$forest,
+    stand_dominantTreeSpecies, 
+    SpParamsMED
+)
+```
+
+
+## Watershed-level simulations
+
+
+## Creating spatial inputs I: forest inventory plots
+
+```{r}
+library(forestables) 
+ifn4_example <- ifn_output_example |>
+    dplyr::filter(version == "ifn4")
+ifn4_example
+```
+
+## Creating spatial inputs II: continuous landscapes
+

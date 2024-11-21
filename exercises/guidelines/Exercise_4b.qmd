@@ -2,9 +2,14 @@
 title: "Exercise 4b guidelines"
 author: "Rodrigo Balaguer"
 date: '2024-11-15'
-output:
-  html_document: default
+output: html
 ---
+
+```{r}
+library(pacman)
+
+p_load(medfateland, meteoland, tidyverse)
+```
 
 ## Exercise objectives
 
@@ -16,13 +21,28 @@ We will use an initialized landscape corresponding to Barcelona county (derived 
 
 ## Guidelines
 
-1. Load **medfateland** and **meteoland** packages and the file `"bcn.rds"`, which contains the Barcelona county initialized landscape derived form exercise 4a output.
+1. Load **medfateland** and **meteoland** packages and the file `"bcn.rds"`, which contains the Barcelona county initialized landscape derived from exercise 4a output.
 
 ```{r}
-
+bcn_sf <- read_rds("exercises/StudentRdata/bcn.rds")
 ```
 
-2. Subset and filter `sf objetc` to just contain wildland locations without NULL forest objects.
+2. Subset and filter `sf object` to just contain wildland locations without NULL forest objects.
+
+```{r}
+bcn_sf <- bcn_sf |> filter(land_cover_type == "wildland")
+```
+
+```{r}
+## opt1
+# null_vals <- map_lgl(bcn_sf$forest, \(x) !is.null(x))
+# bcn_sf <- bcn_sf[null_vals, ]
+
+## opt2
+bcn_sf <- bcn_sf |> 
+    rowwise() |> 
+    filter(!is.null(forest))
+```
 
 ```{r}
 
@@ -31,13 +51,18 @@ We will use an initialized landscape corresponding to Barcelona county (derived 
 3. Load species default parameters from `SpParamsMED` and create a new column in the `sf objetc` to specify the dominant tree specie in each forest plot (**hint**: use `stand_dominantTreeSpecies()` function).
 
 ```{r}
-
+bcn_sf |> 
+    mutate(
+        SpParams = map_chr(forest, \(x) stand_dominantTreeSpecies(x, SpParamsMED))
+    )
 ```
+
+
 
 4. Load `harvesting_metrics.csv` file and inspect which are the target species for wood harvesting in the Barcelona county. Then load from package **medfateland** the table `defaultPrescriptionsBySpecies`, which contains species default prescription parameters, and inspect it (note that the columns are the same as the parameter names required by function defaultManagementFunction() used in exercise 3). Finally, specify in the `sf object` the management unit for each stand dominated by a target specie (**Hint**: first define a column `management_unit` with missing values and then assign the corresponding row number of `defaultPrescriptionsBySpecies` for stands dominated by each of the target species listed in `harvesting_metrics.csv`, leave the stands dominated with other species as missing values).
 
 ```{r}
-
+harvest_tbl <- read_csv("exercises/StudentRdata/harvesting_metrics.csv")
 ```
 
 5. Use function `create_management_scenario()` to define a demand-based management scenario with fixed demand values (m3) derived from `harvesting_metrics.csv` file. Inspect the created scenario. Which is the name of the scenario_type? Finally, it is necessary to specify the area (in ha) that each forest stand represents by adding a `represented_area_ha` columns in the `sf objetc` (**Hint**: pixel resulution was defined in exercise 4a).
